@@ -128,12 +128,14 @@
 // 	}
 // }
 
-
 package handlers
 
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
+	"strings"
+
 	//"strconv"
 
 	"go-api/config"
@@ -176,23 +178,67 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 }
 
 // CREATE USER
+// func CreateUser(w http.ResponseWriter, r *http.Request) {
+
+// 	w.Header().Set("Content-Type", "application/json")
+
+// 	var user models.User
+
+// 	err := json.NewDecoder(r.Body).Decode(&user)
+
+// 	if err != nil {
+// 		http.Error(w, "Invalid data", http.StatusBadRequest)
+// 		return
+// 	}
+
+// 	config.DB.Create(&user)
+
+// 	w.WriteHeader(http.StatusCreated)
+
+// 	json.NewEncoder(w).Encode(user)
+// }
 func CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
 	var user models.User
 
+	// Decode JSON
 	err := json.NewDecoder(r.Body).Decode(&user)
-
 	if err != nil {
-		http.Error(w, "Invalid data", http.StatusBadRequest)
+		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
 
-	config.DB.Create(&user)
+	// Validation: Name
+	if strings.TrimSpace(user.Name) == "" {
+		http.Error(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	// Validation: Email
+	if strings.TrimSpace(user.Email) == "" {
+		http.Error(w, "Email is required", http.StatusBadRequest)
+		return
+	}
+
+	// Email Format Check
+	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$`)
+	if !emailRegex.MatchString(user.Email) {
+		http.Error(w, "Invalid email format", http.StatusBadRequest)
+		return
+	}
+
+	// Save to DB
+	result := config.DB.Create(&user)
+
+	// Unique Email Error
+	if result.Error != nil {
+		http.Error(w, "Email already exists", http.StatusConflict)
+		return
+	}
 
 	w.WriteHeader(http.StatusCreated)
-
 	json.NewEncoder(w).Encode(user)
 }
 

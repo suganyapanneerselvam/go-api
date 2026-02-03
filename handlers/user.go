@@ -135,6 +135,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
+	"github.com/golang-jwt/jwt/v5"
 
 	//"strconv"
 
@@ -143,6 +145,41 @@ import (
 
 	"github.com/gorilla/mux"
 )
+var jwtKey = []byte("my_secret_key")
+
+func Login(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Content-Type", "application/json")
+
+	var creds struct {
+		Email string `json:"email"`
+	}
+
+	json.NewDecoder(r.Body).Decode(&creds)
+
+	var user models.User
+
+	// Check if email exists
+	if err := config.DB.Where("email = ?", creds.Email).First(&user).Error; err != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Create token
+	claims := jwt.MapClaims{
+		"user_id": user.ID,
+		"email":   user.Email,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	tokenStr, _ := token.SignedString(jwtKey)
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"token": tokenStr,
+	})
+}
 
 // GET ALL USERS
 func GetUsers(w http.ResponseWriter, r *http.Request) {

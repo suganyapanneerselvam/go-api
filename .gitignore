@@ -1,0 +1,21 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Angular build
+dist/
+.angular/
+
+# Env
+.env
+
+# Go build
+*.exe
+*.out
+
+# VSCode
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

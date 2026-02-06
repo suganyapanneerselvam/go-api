@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -34,7 +35,13 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Continue
-		next.ServeHTTP(w, r)
+		// ✅ Get role from JWT
+		role := claims["role"]
+
+		// ✅ Store role in context
+		ctx := context.WithValue(r.Context(), "role", role)
+
+		// ✅ Continue with new context
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -15,9 +15,9 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 
 		log.Printf(
-			"%s %s %s",
+			"%s %s %v",
 			r.Method,
-			r.RequestURI,
+			r.URL.Path,
 			time.Since(start),
 		)
 	})

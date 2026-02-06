@@ -1,142 +1,15 @@
-// package handlers
-
-// import (
-// 	"encoding/json"
-// 	"net/http"
-// 	"strconv"
-// 	"strings"
-
-// 	"go-api/models"
-// )
-
-// // Fake Database
-// var users = []models.User{
-// 	{ID: 1, Name: "Alice", Email: "alice@test.com"},
-// 	{ID: 2, Name: "Bob", Email: "bob@test.com"},
-// }
-
-// // Health Check
-// func Health(w http.ResponseWriter, r *http.Request) {
-// 	w.WriteHeader(http.StatusOK)
-// 	w.Write([]byte("OK"))
-// }
-
-// // Main Users Handler
-// func Users(w http.ResponseWriter, r *http.Request) {
-
-// 	w.Header().Set("Content-Type", "application/json")
-
-// 	// Get ID from URL (if exists)
-// 	path := strings.TrimPrefix(r.URL.Path, "/users")
-// 	path = strings.Trim(path, "/")
-
-// 	// If ID exists → /users/1
-// 	if path != "" {
-// 		handleUserByID(w, r, path)
-// 		return
-// 	}
-
-// 	// Otherwise → /users
-// 	switch r.Method {
-
-// 	// READ ALL
-// 	case http.MethodGet:
-// 		json.NewEncoder(w).Encode(users)
-
-// 	// CREATE
-// 	case http.MethodPost:
-
-// 		var user models.User
-
-// 		err := json.NewDecoder(r.Body).Decode(&user)
-// 		if err != nil {
-// 			http.Error(w, "Invalid body", http.StatusBadRequest)
-// 			return
-// 		}
-
-// 		user.ID = len(users) + 1
-// 		users = append(users, user)
-
-// 		w.WriteHeader(http.StatusCreated)
-// 		json.NewEncoder(w).Encode(user)
-
-// 	default:
-// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-// 	}
-// }
-
-// // Handle /users/{id}
-// func handleUserByID(w http.ResponseWriter, r *http.Request, idStr string) {
-
-// 	id, err := strconv.Atoi(idStr)
-// 	if err != nil {
-// 		http.Error(w, "Invalid ID", http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	index := -1
-
-// 	// Find user index
-// 	for i, u := range users {
-// 		if u.ID == id {
-// 			index = i
-// 			break
-// 		}
-// 	}
-
-// 	if index == -1 {
-// 		http.Error(w, "User not found", http.StatusNotFound)
-// 		return
-// 	}
-
-// 	switch r.Method {
-
-// 	// READ ONE
-// 	case http.MethodGet:
-// 		json.NewEncoder(w).Encode(users[index])
-
-// 	// UPDATE
-// 	case http.MethodPut:
-
-// 		var updatedUser models.User
-
-// 		err := json.NewDecoder(r.Body).Decode(&updatedUser)
-// 		if err != nil {
-// 			http.Error(w, "Invalid body", http.StatusBadRequest)
-// 			return
-// 		}
-
-// 		updatedUser.ID = id
-// 		users[index] = updatedUser
-
-// 		json.NewEncoder(w).Encode(updatedUser)
-
-// 	// DELETE
-// 	case http.MethodDelete:
-
-// 		users = append(users[:index], users[index+1:]...)
-
-// 		//w.WriteHeader(http.StatusNoContent)
-// w.WriteHeader(http.StatusOK)
-
-// json.NewEncoder(w).Encode(map[string]string{
-// 	"message": "User deleted successfully",
-// })
-
-// 	default:
-// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-// 	}
-// }
-
 package handlers
 
 import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 
 	//"strconv"
 
@@ -145,6 +18,7 @@ import (
 
 	"github.com/gorilla/mux"
 )
+
 var jwtKey = []byte("my_secret_key")
 
 func Login(w http.ResponseWriter, r *http.Request) {
@@ -152,24 +26,39 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var creds struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	json.NewDecoder(r.Body).Decode(&creds)
 
 	var user models.User
 
-	// Check if email exists
-	if err := config.DB.Where("email = ?", creds.Email).First(&user).Error; err != nil {
+	// Find user
+	if err := config.DB.Where("email = ?", creds.Email).
+		First(&user).Error; err != nil {
+
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
-	// Create token
+	// Compare password
+	err := bcrypt.CompareHashAndPassword(
+		[]byte(user.Password),
+		[]byte(creds.Password),
+	)
+
+	if err != nil {
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Create JWT
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"email":   user.Email,
-		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+		"role":    user.Role,
+		"exp":     time.Now().Add(24 * time.Hour).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -181,16 +70,61 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GET ALL USERS
 func GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
+	// Query params
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+	search := r.URL.Query().Get("search")
+
+	page, _ := strconv.Atoi(pageStr)
+	limit, _ := strconv.Atoi(limitStr)
+
+	// Defaults
+	if page <= 0 {
+		page = 1
+	}
+
+	if limit <= 0 {
+		limit = 5
+	}
+
+	offset := (page - 1) * limit
+
 	var users []models.User
+	var total int64
 
-	config.DB.Find(&users)
+	query := config.DB.Model(&models.User{})
 
-	json.NewEncoder(w).Encode(users)
+	// Search filter
+	if search != "" {
+		query = query.Where(
+			"name ILIKE ? OR email ILIKE ?",
+			"%"+search+"%",
+			"%"+search+"%",
+		)
+	}
+
+	// Count total
+	query.Count(&total)
+
+	// Fetch data
+	query.
+		Limit(limit).
+		Offset(offset).
+		Find(&users)
+
+	// Response
+	response := map[string]interface{}{
+		"page":  page,
+		"limit": limit,
+		"total": total,
+		"data":  users,
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 // GET SINGLE USER
@@ -214,63 +148,48 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(user)
 }
 
-// CREATE USER
-// func CreateUser(w http.ResponseWriter, r *http.Request) {
-
-// 	w.Header().Set("Content-Type", "application/json")
-
-// 	var user models.User
-
-// 	err := json.NewDecoder(r.Body).Decode(&user)
-
-// 	if err != nil {
-// 		http.Error(w, "Invalid data", http.StatusBadRequest)
-// 		return
-// 	}
-
-// 	config.DB.Create(&user)
-
-// 	w.WriteHeader(http.StatusCreated)
-
-// 	json.NewEncoder(w).Encode(user)
-// }
 func CreateUser(w http.ResponseWriter, r *http.Request) {
-
 	w.Header().Set("Content-Type", "application/json")
 
 	var user models.User
 
 	// Decode JSON
-	err := json.NewDecoder(r.Body).Decode(&user)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, "Invalid JSON format", http.StatusBadRequest)
 		return
 	}
 
-	// Validation: Name
-	if strings.TrimSpace(user.Name) == "" {
-		http.Error(w, "Name is required", http.StatusBadRequest)
+	// Validation
+	if strings.TrimSpace(user.Name) == "" ||
+		strings.TrimSpace(user.Email) == "" ||
+		strings.TrimSpace(user.Password) == "" {
+		http.Error(w, "Name, Email and Password are required", http.StatusBadRequest)
 		return
 	}
 
-	// Validation: Email
-	if strings.TrimSpace(user.Email) == "" {
-		http.Error(w, "Email is required", http.StatusBadRequest)
-		return
-	}
-
-	// Email Format Check
+	// Email format
 	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$`)
 	if !emailRegex.MatchString(user.Email) {
 		http.Error(w, "Invalid email format", http.StatusBadRequest)
 		return
 	}
 
-	// Save to DB
-	result := config.DB.Create(&user)
+	// Default role
+	// Hash password
+hashed, err := bcrypt.GenerateFromPassword(
+	[]byte(user.Password),
+	bcrypt.DefaultCost,
+)
+if err != nil {
+	http.Error(w, "Password error", http.StatusInternalServerError)
+	return
+}
 
-	// Unique Email Error
-	if result.Error != nil {
+user.Password = string(hashed)
+	user.Role = "user"
+
+	// Save
+	if err := config.DB.Create(&user).Error; err != nil {
 		http.Error(w, "Email already exists", http.StatusConflict)
 		return
 	}

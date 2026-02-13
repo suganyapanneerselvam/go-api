@@ -1,9 +1,6 @@
 package middleware
 
-import (
-	//"context"
-	"net/http"
-)
+import "net/http"
 
 func AdminOnly(next http.Handler) http.Handler {
 
@@ -12,7 +9,7 @@ func AdminOnly(next http.Handler) http.Handler {
 		role := r.Context().Value("role")
 
 		if role != "admin" {
-			http.Error(w, "Admin access only", http.StatusForbidden)
+			http.Error(w, "Admin only", http.StatusForbidden)
 			return
 		}
 

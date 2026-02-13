@@ -21,22 +21,24 @@ func main() {
 
 	r := mux.NewRouter()
 
-	// Logger
 	r.Use(middleware.LoggerMiddleware)
 
-	// Public
-	r.HandleFunc("/users", handlers.CreateUser).Methods("POST")
-	r.HandleFunc("/login", handlers.Login).Methods("POST")
+	// AUTH
+	auth := r.PathPrefix("/api/auth").Subrouter()
+	auth.HandleFunc("/register", handlers.CreateUser).Methods("POST")
+	auth.HandleFunc("/login", handlers.Login).Methods("POST")
 
-	// Protected
+	// PROTECTED
 	api := r.PathPrefix("/api").Subrouter()
 	api.Use(middleware.AuthMiddleware)
 
 	api.HandleFunc("/users", handlers.GetUsers).Methods("GET")
-
+	api.HandleFunc("/users/{id}", handlers.GetUser).Methods("GET")
+	api.HandleFunc("/users/{id}", handlers.UpdateUser).Methods("PUT")
+	api.HandleFunc("/users/{id}", handlers.DeleteUser).Methods("DELETE")
 	handler := cors.AllowAll().Handler(r)
 
-	log.Println("🚀 Server running on :8080")
+	log.Println("🚀 Server running at :8080")
 
 	log.Fatal(http.ListenAndServe(":8080", handler))
 }
